@@ -7,7 +7,19 @@ import nodemailer from "nodemailer";
 dotenv.config();
 
 const app = express();
-app.use(cors());
+
+/* =========================
+   CORS (FIXES 405 ISSUE)
+========================= */
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type"]
+  })
+);
+app.options("*", cors());
+
 app.use(express.json());
 
 /* =========================
@@ -60,8 +72,7 @@ app.post("/api/contact", async (req, res) => {
     }
 
     // Save to MongoDB
-    const contact = new Contact({ name, email, message });
-    await contact.save();
+    await new Contact({ name, email, message }).save();
 
     // Send Email
     await transporter.sendMail({
@@ -76,7 +87,7 @@ app.post("/api/contact", async (req, res) => {
       `
     });
 
-    res.json({ success: true, message: "Message sent successfully" });
+    res.json({ success: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -101,11 +112,11 @@ app.post("/api/chat", async (req, res) => {
 
     const data = await response.json();
 
-    const text =
-      data.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "No response from Gemini";
-
-    res.json({ text });
+    res.json({
+      text:
+        data.candidates?.[0]?.content?.parts?.[0]?.text ||
+        "No response from Gemini"
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
