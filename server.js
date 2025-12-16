@@ -2,20 +2,20 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
 dotenv.config();
 
 const app = express();
 
 /* =========================
-   CORS (FIXES 405 ISSUE)
+   CORS
 ========================= */
 app.use(
   cors({
     origin: "*",
     methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type"]
+    allowedHeaders: ["Content-Type"],
   })
 );
 app.options("*", cors());
@@ -31,13 +31,13 @@ mongoose
   .catch((err) => console.error("❌ MongoDB connection error:", err));
 
 /* =========================
-   Contact Schema
+   Schema
 ========================= */
 const contactSchema = new mongoose.Schema(
   {
     name: String,
     email: String,
-    message: String
+    message: String,
   },
   { timestamps: true }
 );
@@ -45,15 +45,9 @@ const contactSchema = new mongoose.Schema(
 const Contact = mongoose.model("Contact", contactSchema);
 
 /* =========================
-   Email Transport
+   Resend Client
 ========================= */
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  }
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 /* =========================
    Routes
@@ -68,58 +62,32 @@ app.post("/api/contact", async (req, res) => {
     const { name, email, message } = req.body;
 
     if (!name || !email || !message) {
-      return res.status(400).json({ error: "All fields required" });
+      return res.status(400).json({ success: false });
     }
 
     // Save to MongoDB
-    await new Contact({ name, email, message }).save();
+    await Contact.create({ name, email, message });
 
-    // Send Email
-    await transporter.sendMail({
-      from: `"Portfolio Contact" <${process.env.EMAIL_USER}>`,
-      to: process.env.EMAIL_USER,
+    // Send Email via Resend
+    await resend.emails.send({
+      from: "Portfolio <onboarding@resend.dev>",
+      to: process.env.EMAIL_TO,
       subject: "📩 New Portfolio Message",
-      html: `
-        <h3>New Contact Message</h3>
-        <p><strong>Name:</strong> ${name}</p>
-        <p><strong>Email:</strong> ${email}</p>
-        <p><strong>Message:</strong> ${message}</p>
-      `
+      text: `
+New Contact Message
+
+Name: ${name}
+Email: ${email}
+
+Message:
+${message}
+      `,
     });
 
     res.json({ success: true });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
-  }
-});
-
-/* Gemini Chat API */
-app.post("/api/chat", async (req, res) => {
-  try {
-    const { message } = req.body;
-
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: message }] }]
-        })
-      }
-    );
-
-    const data = await response.json();
-
-    res.json({
-      text:
-        data.candidates?.[0]?.content?.parts?.[0]?.text ||
-        "No response from Gemini"
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
+    console.error("❌ Resend error:", err);
+    res.status(500).json({ success: false });
   }
 });
 
